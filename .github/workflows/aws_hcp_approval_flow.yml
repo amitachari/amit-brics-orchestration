@@ -179,6 +179,16 @@ jobs:
             actor=${{ github.actor }},
             commit=${{ github.sha }}
 
+      - name: Display Run Information     
+        shell: bash
+        run: |
+           echo "Workspace : ${{ env.TF_WORKSPACE }}"
+           echo "Run ID    : ${{ steps.create-run.outputs.run_id }}"
+           echo "Plan ID   : ${{ steps.create-run.outputs.plan_id }}"
+           echo "Status    : ${{ steps.create-run.outputs.run_status }}"
+           echo "Payload   :"
+           echo '${{ steps.create-run.outputs.payload }}'
+
       - name: Show HCP plan summary
         if: always() && steps.create-run.outputs.plan_id != ''
         uses: hashicorp/tfc-workflows-github/actions/plan-output@v1.3.2
