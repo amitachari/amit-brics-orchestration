@@ -1,0 +1,196 @@
+name: AWS HCP Terraform Remote Orchestration
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: string
+
+      instantiation:
+        description: Variable configuration to deploy
+        required: true
+        type: string
+
+      terraform_action:
+        description: Terraform action
+        required: true
+        type: string
+
+      terraform_log_level:
+        description: Terraform log verbosity
+        required: false
+        default: ERROR
+        type: string
+
+      terraform_root_module:
+        description: Terraform root module folder name
+        required: true
+        type: string
+
+      terraform_modules_path:
+        description: Parent path containing root modules
+        required: true
+        type: string
+
+      terraform_variables_full_path:
+        description: Base path containing environment tfvars
+        required: true
+        type: string
+
+      tf_cloud_organization:
+        description: HCP Terraform organization name
+        required: true
+        type: string
+
+      hcp_workspace:
+        description: HCP Terraform workspace name
+        required: true
+        type: string
+
+    secrets:
+      hcp_token:
+        description: HCP Terraform automation token
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: HCP ${{ inputs.terraform_action }}
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: >-
+        hcp-${{ inputs.hcp_workspace }}-${{ inputs.instantiation }}
+      cancel-in-progress: false
+
+    env:
+      TF_API_TOKEN: ${{ secrets.hcp_token }}
+      TF_CLOUD_ORGANIZATION: ${{ inputs.tf_cloud_organization }}
+      TF_WORKSPACE: ${{ inputs.hcp_workspace }}
+      TF_LOG: ${{ inputs.terraform_log_level }}
+      ROOT_MODULE_DIRECTORY: >-
+        ${{ inputs.terraform_modules_path }}/${{ inputs.terraform_root_module }}
+      ENV_VARIABLE_DIRECTORY: >-
+        ${{ inputs.terraform_variables_full_path }}/${{ inputs.environment }}
+      UPLOAD_DIRECTORY: .hcp-upload
+
+    steps:
+      - name: Validate requested action
+        shell: bash
+        run: |
+          case "${{ inputs.terraform_action }}" in
+            plan|apply)
+              echo "Supported action selected: ${{ inputs.terraform_action }}"
+              ;;
+            plan-destroy|destroy)
+              echo "Destroy support will be enabled after normal apply validation."
+              exit 1
+              ;;
+            *)
+              echo "Unsupported action: ${{ inputs.terraform_action }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout application repository
+        uses: actions/checkout@v4
+
+      - name: Validate root module directory
+        shell: bash
+        run: |
+          test -d "${ROOT_MODULE_DIRECTORY}"
+          test -f "${ROOT_MODULE_DIRECTORY}/main.tf"
+          test -f "${ROOT_MODULE_DIRECTORY}/variables.tf"
+
+      - name: Validate variable files
+        shell: bash
+        run: |
+          test -f "${ENV_VARIABLE_DIRECTORY}/common.tfvars"
+          test -f "${ENV_VARIABLE_DIRECTORY}/${{ inputs.instantiation }}.tfvars"
+
+      - name: Prepare HCP configuration package
+        shell: bash
+        run: |
+          rm -rf "${UPLOAD_DIRECTORY}"
+          mkdir -p "${UPLOAD_DIRECTORY}"
+
+          cp "${ROOT_MODULE_DIRECTORY}"/*.tf "${UPLOAD_DIRECTORY}/"
+
+          cp "${ENV_VARIABLE_DIRECTORY}/common.tfvars" \
+            "${UPLOAD_DIRECTORY}/00-common.auto.tfvars"
+
+          cp "${ENV_VARIABLE_DIRECTORY}/${{ inputs.instantiation }}.tfvars" \
+            "${UPLOAD_DIRECTORY}/10-instantiation.auto.tfvars"
+
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Instantiation: ${{ inputs.instantiation }}"
+          echo "Workspace: ${TF_WORKSPACE}"
+          echo "Root module: ${ROOT_MODULE_DIRECTORY}"
+
+          find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
+
+      - name: Prevent cloud block in uploaded configuration
+        shell: bash
+        run: |
+          if grep -R -n -E '^[[:space:]]*cloud[[:space:]]*\{' \
+            "${UPLOAD_DIRECTORY}"/*.tf; then
+            echo "Do not use a terraform cloud block in API-uploaded configuration."
+            exit 1
+          fi
+
+      - name: Setup Terraform for validation
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+
+      - name: Check Terraform formatting
+        shell: bash
+        run: |
+          terraform fmt -check -recursive "${UPLOAD_DIRECTORY}"
+
+      - name: Upload configuration to HCP
+        id: upload
+        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          directory: ${{ env.UPLOAD_DIRECTORY }}
+          speculative: >-
+            ${{ inputs.terraform_action == 'plan' }}
+
+      - name: Create remote HCP run
+        id: create-run
+        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          configuration_version: >-
+            ${{ steps.upload.outputs.configuration_version_id }}
+          plan_only: >-
+            ${{ inputs.terraform_action == 'plan' }}
+          message: >-
+            GitHub Actions:
+            action=${{ inputs.terraform_action }},
+            environment=${{ inputs.environment }},
+            instantiation=${{ inputs.instantiation }},
+            actor=${{ github.actor }},
+            commit=${{ github.sha }}
+
+      - name: Show HCP plan summary
+        if: always() && steps.create-run.outputs.plan_id != ''
+        uses: hashicorp/tfc-workflows-github/actions/plan-output@v1.3.2
+        with:
+          plan: ${{ steps.create-run.outputs.plan_id }}
+
+      - name: Apply remote HCP run
+        if: >-
+          inputs.terraform_action == 'apply' &&
+          fromJSON(steps.create-run.outputs.payload).data.attributes.actions.IsConfirmable
+        uses: hashicorp/tfc-workflows-github/actions/apply-run@v1.3.2
+        with:
+          run: ${{ steps.create-run.outputs.run_id }}
+          comment: >-
+            Apply approved through GitHub Actions by ${{ github.actor }}
