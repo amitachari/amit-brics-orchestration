@@ -179,21 +179,50 @@ jobs:
             actor=${{ github.actor }},
             commit=${{ github.sha }}
 
-      - name: Display Run Information     
+      
+
+      - name: Fetch HCP Plan JSON
         shell: bash
         run: |
-           echo "Workspace : ${{ env.TF_WORKSPACE }}"
-           echo "Run ID    : ${{ steps.create-run.outputs.run_id }}"
-           echo "Plan ID   : ${{ steps.create-run.outputs.plan_id }}"
-           echo "Status    : ${{ steps.create-run.outputs.run_status }}"
-           echo "Payload   :"
-           echo '${{ steps.create-run.outputs.payload }}'
+             echo "Plan ID: ${{ steps.create-run.outputs.plan_id }}"
+             curl \
+              --header "Authorization: Bearer $TF_API_TOKEN" \
+              --header "Content-Type: application/vnd.api+json" \
+              "https://app.terraform.io/api/v2/plans/${{ steps.create-run.outputs.plan_id }}/json-output" \
+              -o plan.json
 
-      - name: Show HCP plan summary
-        if: always() && steps.create-run.outputs.plan_id != ''
-        uses: hashicorp/tfc-workflows-github/actions/plan-output@v1.3.2
+               ls -lh plan.json
+
+
+      - name: Show Terraform Plan Details
+        shell: bash
+        run: |
+           echo "==============================="
+           echo "Terraform Plan Details"
+           echo "==============================="
+
+           jq '
+           .resource_changes[] |
+            {
+               resource: .address,
+               actions: .change.actions
+           }
+               ' plan.json
+
+
+      - name: Upload Plan JSON
+        uses: actions/upload-artifact@v4
         with:
-          plan: ${{ steps.create-run.outputs.plan_id }}
+            name: terraform-plan-json
+            path: plan.json
+
+
+      - name: Show Plan Summary
+        shell: bash
+        run: |
+             cat plan.json | jq .
+
+      
 
       - name: Apply remote HCP run
         if: >-
