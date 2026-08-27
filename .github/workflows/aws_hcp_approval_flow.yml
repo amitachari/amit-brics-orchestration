@@ -1,4 +1,4 @@
-name: AWS HCP Terraform Remote Orchestration
+name: AWS HCP Terraform Local Execution
 
 on:
   workflow_call:
@@ -55,7 +55,8 @@ on:
         required: true
 
 permissions:
-  contents: read
+   id-token: write
+   contents: read
 
 jobs:
   terraform:
@@ -99,6 +100,12 @@ jobs:
       - name: Checkout application repository
         uses: actions/checkout@v4
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::040956601118:role/TerraformHCPRole
+          aws-region: ap-south-1
+
       - name: Validate root module directory
         shell: bash
         run: |
@@ -133,15 +140,6 @@ jobs:
 
           find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
 
-      - name: Prevent cloud block in uploaded configuration
-        shell: bash
-        run: |
-          if grep -R -n -E '^[[:space:]]*cloud[[:space:]]*\{' \
-            "${UPLOAD_DIRECTORY}"/*.tf; then
-            echo "Do not use a terraform cloud block in API-uploaded configuration."
-            exit 1
-          fi
-
       - name: Setup Terraform for validation
         uses: hashicorp/setup-terraform@v3
         with:
@@ -153,83 +151,70 @@ jobs:
         run: |
           terraform fmt -check -recursive "${UPLOAD_DIRECTORY}"
 
-      - name: Upload configuration to HCP
-        id: upload
-        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
-        with:
-          workspace: ${{ env.TF_WORKSPACE }}
-          directory: ${{ env.UPLOAD_DIRECTORY }}
-          speculative: >-
-            ${{ inputs.terraform_action == 'plan' }}
 
-      - name: Create remote HCP run
-        id: create-run
-        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
-        with:
-          workspace: ${{ env.TF_WORKSPACE }}
-          configuration_version: >-
-            ${{ steps.upload.outputs.configuration_version_id }}
-          plan_only: >-
-            ${{ inputs.terraform_action == 'plan' }}
-          message: >-
-            GitHub Actions:
-            action=${{ inputs.terraform_action }},
-            environment=${{ inputs.environment }},
-            instantiation=${{ inputs.instantiation }},
-            actor=${{ github.actor }},
-            commit=${{ github.sha }}
-
-      
-
-      - name: Fetch HCP Plan JSON
+      - name: Configure HCP Credentials
         shell: bash
         run: |
-             echo "Plan ID: ${{ steps.create-run.outputs.plan_id }}"
-             curl \
-              --header "Authorization: Bearer $TF_API_TOKEN" \
-              --header "Content-Type: application/vnd.api+json" \
-              "https://app.terraform.io/api/v2/plans/${{ steps.create-run.outputs.plan_id }}/json-output" \
-              -o plan.json
+            mkdir -p ~/.terraform.d
 
-               ls -lh plan.json
+             cat > ~/.terraform.d/credentials.tfrc.json <<EOF
+             {
+                "credentials": {
+                  "app.terraform.io": {
+                     "token": "${TF_API_TOKEN}"
+                     }
+                   }
+                }
+            EOF
 
-
-      - name: Show Terraform Plan Details
+      - name: Terraform Init
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
-           echo "==============================="
-           echo "Terraform Plan Details"
-           echo "==============================="
+             terraform init
 
-           jq '
-           .resource_changes[] |
-            {
-               resource: .address,
-               actions: .change.actions
-           }
-               ' plan.json
+      - name: Terraform Plan
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
+        run: |
+          terraform plan -out=tfplan
 
+      - name: Show Terraform Plan
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
+        run: |
+          terraform show tfplan
 
-      - name: Upload Plan JSON
+      - name: Save Terraform Plan
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
+        run: |
+          terraform show tfplan > terraform-plan.txt
+
+      - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
-            name: terraform-plan-json
-            path: plan.json
+          name: terraform-plan
+          path: ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
 
-
-      - name: Show Plan Summary
+      - name: Terraform Apply
+        if: inputs.terraform_action == 'apply'
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
-             cat plan.json | jq .
+          terraform apply -auto-approve tfplan
+      
+      
 
       
 
-      - name: Apply remote HCP run
-        if: >-
-          inputs.terraform_action == 'apply' &&
-          fromJSON(steps.create-run.outputs.payload).data.attributes.actions.IsConfirmable
-        uses: hashicorp/tfc-workflows-github/actions/apply-run@v1.3.2
-        with:
-          run: ${{ steps.create-run.outputs.run_id }}
-          comment: >-
-            Apply approved through GitHub Actions by ${{ github.actor }}
+
+      
+
+
+      
+
+      
+      
+
+      
