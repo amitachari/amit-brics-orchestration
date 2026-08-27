@@ -105,10 +105,16 @@ jobs:
           echo "Repository: ${{ github.repository }}"
           echo "Ref: ${{ github.ref }}"
 
+      - name: Dump GitHub Context
+        run: |
+          echo "Repository=${{ github.repository }}"
+          echo "Ref=${{ github.ref }}"
+          echo "Workflow Ref=${{ github.workflow_ref }}"
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::040956601118:role/TerraformHCPRole
+          role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
           aws-region: ap-south-1
 
       - name: Validate root module directory
