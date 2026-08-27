@@ -100,16 +100,39 @@ jobs:
       - name: Checkout application repository
         uses: actions/checkout@v4
 
-      - name: Show GitHub Context
+      - name: Inspect GitHub OIDC claims
+        shell: bash
+        env:
+          OIDC_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          OIDC_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
+          response="$(
+            curl --silent --show-error --fail \
+              --header "Authorization: Bearer ${OIDC_REQUEST_TOKEN}" \
+              "${OIDC_REQUEST_URL}&audience=sts.amazonaws.com"
+          )"
 
-      - name: Dump GitHub Context
-        run: |
-          echo "Repository=${{ github.repository }}"
-          echo "Ref=${{ github.ref }}"
-          echo "Workflow Ref=${{ github.workflow_ref }}"
+          token="$(printf '%s' "${response}" | jq -r '.value')"
+          payload="$(printf '%s' "${token}" | cut -d '.' -f 2)"
+
+          padding=$(( (4 - ${#payload} % 4) % 4 ))
+          payload="${payload}$(printf '=%.0s' $(seq 1 "${padding}"))"
+
+          printf '%s' "${payload}" |
+            tr '_-' '/+' |
+            base64 --decode 2>/dev/null |
+            jq '{
+              iss,
+              aud,
+              sub,
+              repository,
+              repository_id,
+              repository_owner,
+              repository_owner_id,
+              ref,
+              workflow_ref,
+              job_workflow_ref
+            }'
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
