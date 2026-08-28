@@ -106,7 +106,7 @@ jobs:
         run: |
           echo "URL Present? ${ACTIONS_ID_TOKEN_REQUEST_URL:+YES}"
           echo "TOKEN Present? ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+YES}"
-          
+
       - name: Dump Full OIDC Token Claims
         shell: bash
         run: |
@@ -120,12 +120,16 @@ jobs:
 
           echo "$TOKEN" | cut -d '.' -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq .
 
-      # - name: Configure AWS Credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
-      #     aws-region: ap-south-1
-
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
+          aws-region: ap-south-1
+          
+      - name: Verify AWS Identity
+        shell: bash
+        run: |
+          aws sts get-caller-identity
 
       - name: Validate root module directory
         shell: bash
