@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.terraform_action }}" in
-            plan|apply|destroy)
+            plan|apply|destroy-plan|destroy)
               echo "Supported action selected: ${{ inputs.terraform_action }}"
               ;;      
             *)
@@ -156,22 +156,25 @@ jobs:
           terraform plan -out=tfplan
 
       - name: Terraform Destroy Plan
-        if: inputs.terraform_action == 'destroy'
+        if: inputs.terraform_action == 'destroy-plan' || inputs.terraform_action == 'destroy'
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform plan -destroy -out=tfplan
 
       - name: Show Terraform Plan
+        if: inputs.terraform_action == 'plan' || inputs.terraform_action == 'apply'
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform show tfplan
+
       - name: Save Terraform Plan
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform show tfplan > terraform-plan.txt
+
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
