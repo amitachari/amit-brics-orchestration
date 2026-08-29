@@ -1,5 +1,4 @@
 name: AWS HCP Terraform Local Execution
-
 on:
   workflow_call:
     inputs:
@@ -7,68 +6,55 @@ on:
         description: Deployment environment
         required: true
         type: string
-
       instantiation:
         description: Variable configuration to deploy
         required: true
         type: string
-
       terraform_action:
         description: Terraform action
         required: true
         type: string
-
       terraform_log_level:
         description: Terraform log verbosity
         required: false
         default: ERROR
         type: string
-
       terraform_root_module:
         description: Terraform root module folder name
         required: true
         type: string
-
       terraform_modules_path:
         description: Parent path containing root modules
         required: true
         type: string
-
       terraform_variables_full_path:
         description: Base path containing environment tfvars
         required: true
         type: string
-
       tf_cloud_organization:
         description: HCP Terraform organization name
         required: true
         type: string
-
       hcp_workspace:
         description: HCP Terraform workspace name
         required: true
         type: string
-
     secrets:
       hcp_token:
         description: HCP Terraform automation token
         required: true
-
   
-
 jobs:
-  plan:
+  terraform:
     name: HCP ${{ inputs.terraform_action }}
     permissions:
         id-token: write
         contents: read
     runs-on: ubuntu-latest
-
     concurrency:
       group: >-
         hcp-${{ inputs.hcp_workspace }}-${{ inputs.instantiation }}
       cancel-in-progress: false
-
     env:
       TF_API_TOKEN: ${{ secrets.hcp_token }}
       TF_CLOUD_ORGANIZATION: ${{ inputs.tf_cloud_organization }}
@@ -79,7 +65,6 @@ jobs:
       ENV_VARIABLE_DIRECTORY: >-
         ${{ inputs.terraform_variables_full_path }}/${{ inputs.environment }}
       UPLOAD_DIRECTORY: .hcp-upload
-
     steps:
       - name: Validate requested action
         shell: bash
@@ -97,69 +82,58 @@ jobs:
               exit 1
               ;;
           esac
-
       - name: Checkout application repository
         uses: actions/checkout@v4
-
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
           aws-region: ap-south-1
-
-      
+      - name: Verify AWS Identity
+        shell: bash
+        run: |
+          aws sts get-caller-identity
       - name: Validate root module directory
         shell: bash
         run: |
           test -d "${ROOT_MODULE_DIRECTORY}"
           test -f "${ROOT_MODULE_DIRECTORY}/main.tf"
           test -f "${ROOT_MODULE_DIRECTORY}/variables.tf"
-
       - name: Validate variable files
         shell: bash
         run: |
           test -f "${ENV_VARIABLE_DIRECTORY}/common.tfvars"
           test -f "${ENV_VARIABLE_DIRECTORY}/${{ inputs.instantiation }}.tfvars"
-
       - name: Prepare HCP configuration package
         shell: bash
         run: |
           rm -rf "${UPLOAD_DIRECTORY}"
           mkdir -p "${UPLOAD_DIRECTORY}"
-
           cp "${ROOT_MODULE_DIRECTORY}"/*.tf "${UPLOAD_DIRECTORY}/"
-
           cp "${ENV_VARIABLE_DIRECTORY}/common.tfvars" \
             "${UPLOAD_DIRECTORY}/00-common.auto.tfvars"
-
           cp "${ENV_VARIABLE_DIRECTORY}/${{ inputs.instantiation }}.tfvars" \
             "${UPLOAD_DIRECTORY}/10-instantiation.auto.tfvars"
-
           echo "Environment: ${{ inputs.environment }}"
           echo "Instantiation: ${{ inputs.instantiation }}"
           echo "Workspace: ${TF_WORKSPACE}"
           echo "Root module: ${ROOT_MODULE_DIRECTORY}"
-
           find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
-
       - name: Setup Terraform for validation
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: latest
           terraform_wrapper: false
-
       - name: Check Terraform formatting
         shell: bash
         run: |
           terraform fmt -check -recursive "${UPLOAD_DIRECTORY}"
 
-
       - name: Configure HCP Credentials
         shell: bash
         run: |
             mkdir -p ~/.terraform.d
-
              cat > ~/.terraform.d/credentials.tfrc.json <<EOF
              {
                 "credentials": {
@@ -169,114 +143,34 @@ jobs:
                    }
                 }
             EOF
-
       - name: Terraform Init
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
              terraform init
-
       - name: Terraform Plan
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform plan -out=tfplan
-
       - name: Show Terraform Plan
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform show tfplan
-
       - name: Save Terraform Plan
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform show tfplan > terraform-plan.txt
-
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: |
-            ${{ env.UPLOAD_DIRECTORY }}/tfplan
-            ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
-
-      # - name: Terraform Apply
-      #   if: inputs.terraform_action == 'apply'
-      #   working-directory: ${{ env.UPLOAD_DIRECTORY }}
-      #   shell: bash
-      #   run: |
-      #     terraform apply -auto-approve tfplan
-      
-      
-  apply:
-     needs: plan
-     if: inputs.terraform_action == 'apply'
-     runs-on: ubuntu-latest
-     permissions:
-       id-token: write
-       contents: read
-     env:
-       TF_API_TOKEN: ${{ secrets.hcp_token }}
-
-     steps:
-       
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
-          aws-region: ap-south-1
-
-      - uses: hashicorp/setup-terraform@v3
-
-      - name: Configure HCP Credentials
-        run: |
-          mkdir -p ~/.terraform.d
-
-          cat > ~/.terraform.d/credentials.tfrc.json <<EOF
-          {
-            "credentials": {
-              "app.terraform.io": {
-                "token": "${TF_API_TOKEN}"
-              }
-            }
-          }
-          EOF
-
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: .hcp-upload
-
-      - name: Verify Downloaded Files
-        run: |
-          pwd
-          ls -la .hcp-upload
-
-      - name: Terraform Init
-        working-directory: .hcp-upload
-        run: terraform init -input=false
-
+          path: ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
       - name: Terraform Apply
-        working-directory: .hcp-upload
+        if: inputs.terraform_action == 'apply'
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
         run: |
-         terraform apply \
-          -input=false \
-          -auto-approve \
-           tfplan
-
-      
-
-
-      
-
-
-      
-
-      
-      
-
-      
+          terraform apply -auto-approve tfplan
