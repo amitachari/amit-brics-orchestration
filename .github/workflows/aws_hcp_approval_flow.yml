@@ -198,7 +198,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
+          path: |
+            ${{ env.UPLOAD_DIRECTORY }}/tfplan
+            ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
 
       # - name: Terraform Apply
       #   if: inputs.terraform_action == 'apply'
@@ -215,6 +217,8 @@ jobs:
      permissions:
        id-token: write
        contents: read
+     env:
+       TF_API_TOKEN: ${{ secrets.hcp_token }}
 
      steps:
        
@@ -246,6 +250,11 @@ jobs:
         with:
           name: terraform-plan
           path: .hcp-upload
+
+      - name: Verify Downloaded Files
+        run: |
+          pwd
+          ls -la .hcp-upload
 
       - name: Terraform Init
         working-directory: .hcp-upload
