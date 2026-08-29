@@ -57,7 +57,7 @@ on:
   
 
 jobs:
-  terraform:
+  plan:
     name: HCP ${{ inputs.terraform_action }}
     permissions:
         id-token: write
@@ -108,11 +108,7 @@ jobs:
           role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
           aws-region: ap-south-1
 
-      - name: Verify AWS Identity
-        shell: bash
-        run: |
-          aws sts get-caller-identity
-
+      
       - name: Validate root module directory
         shell: bash
         run: |
@@ -204,14 +200,67 @@ jobs:
           name: terraform-plan
           path: ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
 
-      - name: Terraform Apply
-        if: inputs.terraform_action == 'apply'
-        working-directory: ${{ env.UPLOAD_DIRECTORY }}
-        shell: bash
-        run: |
-          terraform apply -auto-approve tfplan
+      # - name: Terraform Apply
+      #   if: inputs.terraform_action == 'apply'
+      #   working-directory: ${{ env.UPLOAD_DIRECTORY }}
+      #   shell: bash
+      #   run: |
+      #     terraform apply -auto-approve tfplan
       
       
+  apply:
+  needs: plan
+
+  if: inputs.terraform_action == 'apply'
+
+  runs-on: ubuntu-latest
+
+  permissions:
+    id-token: write
+    contents: read
+
+  steps:
+
+    - uses: actions/checkout@v4
+
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::040956601118:role/TerraformGitHubRole
+        aws-region: ap-south-1
+
+    - uses: hashicorp/setup-terraform@v3
+
+    - name: Configure HCP Credentials
+      run: |
+        mkdir -p ~/.terraform.d
+
+        cat > ~/.terraform.d/credentials.tfrc.json <<EOF
+        {
+          "credentials": {
+            "app.terraform.io": {
+              "token": "${TF_API_TOKEN}"
+            }
+          }
+        }
+        EOF
+
+    - name: Download Terraform Plan
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-plan
+        path: .hcp-upload
+
+    - name: Terraform Init
+      working-directory: .hcp-upload
+      run: terraform init -input=false
+
+    - name: Terraform Apply
+      working-directory: .hcp-upload
+      run: |
+        terraform apply \
+          -input=false \
+          -auto-approve \
+          tfplan
 
       
 
