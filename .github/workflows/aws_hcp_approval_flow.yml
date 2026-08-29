@@ -70,13 +70,9 @@ jobs:
         shell: bash
         run: |
           case "${{ inputs.terraform_action }}" in
-            plan|apply)
+            plan|apply|destroy)
               echo "Supported action selected: ${{ inputs.terraform_action }}"
-              ;;
-            plan-destroy|destroy)
-              echo "Destroy support will be enabled after normal apply validation."
-              exit 1
-              ;;
+              ;;      
             *)
               echo "Unsupported action: ${{ inputs.terraform_action }}"
               exit 1
@@ -120,11 +116,13 @@ jobs:
           echo "Workspace: ${TF_WORKSPACE}"
           echo "Root module: ${ROOT_MODULE_DIRECTORY}"
           find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
+
       - name: Setup Terraform for validation
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: latest
           terraform_wrapper: false
+
       - name: Check Terraform formatting
         shell: bash
         run: |
@@ -143,16 +141,27 @@ jobs:
                    }
                 }
             EOF
+
       - name: Terraform Init
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
              terraform init
+
       - name: Terraform Plan
+        if: inputs.terraform_action == 'plan' || inputs.terraform_action == 'apply'
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
           terraform plan -out=tfplan
+
+      - name: Terraform Destroy Plan
+        if: inputs.terraform_action == 'destroy'
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
+        run: |
+          terraform plan -destroy -out=tfplan
+
       - name: Show Terraform Plan
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
@@ -168,8 +177,16 @@ jobs:
         with:
           name: terraform-plan
           path: ${{ env.UPLOAD_DIRECTORY }}/terraform-plan.txt
+
       - name: Terraform Apply
         if: inputs.terraform_action == 'apply'
+        working-directory: ${{ env.UPLOAD_DIRECTORY }}
+        shell: bash
+        run: |
+          terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: inputs.terraform_action == 'destroy'
         working-directory: ${{ env.UPLOAD_DIRECTORY }}
         shell: bash
         run: |
