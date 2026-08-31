@@ -39,15 +39,16 @@ on:
         description: HCP Terraform workspace name
         required: true
         type: string
-    secrets:
-      hcp_token:
-        description: HCP Terraform automation token
-        required: true
-    terraform_version:
+      terraform_version:
         description: Terraform CLI version to install
         required: false
         default: "latest"
         type: string
+    secrets:
+       hcp_token:
+        description: HCP Terraform automation token
+        required: true
+      
   
 jobs:
   terraform:
