@@ -43,6 +43,11 @@ on:
       hcp_token:
         description: HCP Terraform automation token
         required: true
+    terraform_version:
+        description: Terraform CLI version to install
+        required: false
+        default: "latest"
+        type: string
   
 jobs:
   terraform:
@@ -117,10 +122,10 @@ jobs:
           echo "Root module: ${ROOT_MODULE_DIRECTORY}"
           find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
 
-      - name: Setup Terraform for validation
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: latest
+          terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
 
       - name: Check Terraform formatting
