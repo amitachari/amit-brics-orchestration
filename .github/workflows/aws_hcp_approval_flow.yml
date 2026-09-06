@@ -122,6 +122,11 @@ jobs:
           echo "Workspace: ${TF_WORKSPACE}"
           echo "Root module: ${ROOT_MODULE_DIRECTORY}"
           find "${UPLOAD_DIRECTORY}" -maxdepth 2 -type f -print
+          echo "=============================="
+          echo "Contents of tfvars file"
+          echo "=============================="
+
+          cat "${UPLOAD_DIRECTORY}/10-instantiation.auto.tfvars"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -160,6 +165,7 @@ jobs:
         shell: bash
         run: |
           terraform plan -out=tfplan
+          terraform show tfplan | grep sdf -A 10
 
       - name: Terraform Destroy Plan
         if: inputs.terraform_action == 'destroy-plan' || inputs.terraform_action == 'destroy'
