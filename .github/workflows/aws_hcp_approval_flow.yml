@@ -165,7 +165,7 @@ jobs:
         shell: bash
         run: |
           terraform plan -out=tfplan
-          terraform show tfplan | grep sdf -A 10
+          terraform show tfplan | grep sdf -A 10 || true
 
       - name: Terraform Destroy Plan
         if: inputs.terraform_action == 'destroy-plan' || inputs.terraform_action == 'destroy'
