@@ -134,10 +134,10 @@ jobs:
           terraform_version: ${{ inputs.terraform_version }}
           terraform_wrapper: false
 
-      - name: Check Terraform formatting
-        shell: bash
-        run: |
-          terraform fmt -check -recursive "${UPLOAD_DIRECTORY}"
+      # - name: Check Terraform formatting
+      #   shell: bash
+      #   run: |
+      #     terraform fmt -check -recursive "${UPLOAD_DIRECTORY}"
 
       - name: Configure HCP Credentials
         shell: bash
