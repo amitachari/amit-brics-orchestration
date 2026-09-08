@@ -87,11 +87,11 @@ jobs:
       - name: Checkout application repository
         uses: actions/checkout@v4
 
-      - name: Print GitHub context
+      - name: Debug Ref
         run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Ref Name: ${{ github.ref_name }}"
+         echo "Repository=${{ github.repository }}"
+         echo "Ref=${{ github.ref }}"
+         echo "RefName=${{ github.ref_name }}"
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
